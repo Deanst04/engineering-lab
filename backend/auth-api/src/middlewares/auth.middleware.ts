@@ -1,33 +1,24 @@
 import { NextFunction, Request, Response } from "express";
 import { verify } from "jsonwebtoken";
 import { AuthUser } from "../types/auth.types";
+import AppError from "../errors/AppError";
 
-export default function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export default function authMiddleware(req: Request, _res: Response, next: NextFunction) {
     const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) return next(new Error("JWT_SECRET is not defined"));
+
     const authHeader = req.get("Authorization");
-    if (!jwtSecret) return next({
-        status: 500,
-        message: 'JWT_SECRET is not defined'
-    })
-    if (!authHeader) return next({
-        status: 401,
-        message: 'missing Authorization header',
-    })
-    if (!authHeader.startsWith('Bearer ')) return next({
-        status: 401,
-        message: 'missing Bearer keyword'
-    })
-    const parts = authHeader.split(' ');
-    const jwtToken = parts[1];
-    if (!jwtToken) return next({
-        status: 401,
-        message: 'missing jwt token'
-    })
+    if (!authHeader) return next(new AppError("Missing Authorization header", 401));
+    if (!authHeader.startsWith("Bearer ")) return next(new AppError("Missing Bearer keyword", 401));
+
+    const jwtToken = authHeader.split(" ")[1];
+    if (!jwtToken) return next(new AppError("Missing JWT token", 401));
+
     try {
         const user = verify(jwtToken, jwtSecret) as AuthUser;
         req.authUser = user;
         next();
-    } catch (e) {
-        next(e);
+    } catch {
+        next(new AppError("Invalid or expired token", 401));
     }
 }

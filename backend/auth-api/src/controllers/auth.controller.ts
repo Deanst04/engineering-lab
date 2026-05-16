@@ -2,120 +2,95 @@ import { Request, Response } from "express";
 import prisma from "../config/prisma";
 import { hashPassword, comparePasswords } from "../utils/password.util";
 import { sign } from "jsonwebtoken";
-import "../types/auth.types"
+import "../types/auth.types";
+import AppError from "../errors/AppError";
 
 const jwtSecret = process.env.JWT_SECRET;
 
 export async function registerUser(req: Request, res: Response) {
-  try {
-    const { firstName, lastName, username, email, password } = req.body;
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email },
-          { username }
-        ]
-      }
-    });
-    const existingField = existingUser?.email === email ? "Email" : "Username";
-    if (existingUser) {
-      return res.status(409).json({
-        message: `${existingField} already exists`
-      });
-    }
-    const passwordHash = await hashPassword(password);
-    const user = await prisma.user.create({ 
-      data: { 
-        firstName, 
-        lastName, 
-        username, 
-        email, 
-        passwordHash 
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        username: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
-    const jwt = sign({ userId: user.id, role: user.role }, jwtSecret!, { expiresIn: "1h" });
-    return res.status(201).json({
-      jwt,
-      user,
-    });
-  } catch (e) {
-    console.error("Error in registerUser:", e);
-    return res.status(500).json({
-      message: "Internal server error",
-    });
+  const { firstName, lastName, username, email, password } = req.body;
+  const existingUser = await prisma.user.findFirst({
+    where: {
+      OR: [{ email }, { username }],
+    },
+  });
+  if (existingUser) {
+    const existingField = existingUser.email === email ? "Email" : "Username";
+    throw new AppError(`${existingField} already exists`, 409);
   }
+  const passwordHash = await hashPassword(password);
+  const user = await prisma.user.create({
+    data: {
+      firstName,
+      lastName,
+      username,
+      email,
+      passwordHash,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      username: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  const jwt = sign({ userId: user.id, role: user.role }, jwtSecret!, {
+    expiresIn: "1h",
+  });
+  return res.status(201).json({
+    jwt,
+    user,
+  });
 }
 
 export async function loginUser(req: Request, res: Response) {
-  try {
-    const { email, password } = req.body;
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
-    if (!user) {
-      return res.status(401).json({
-        message: "Invalid email or password",
-      });
-    }
-    const { passwordHash, ...userWithoutPassword } = user;
-    const isPasswordMatch = await comparePasswords(password, user.passwordHash);
-    if (!isPasswordMatch) {
-      return res.status(401).json({
-        message: "Invalid email or password",
-      });
-    }
-    const jwt = sign({ userId: user.id, role: user.role }, jwtSecret!, { expiresIn: "1h" });
-    return res.status(200).json({
-      jwt,
-      user: userWithoutPassword,
-    });
-  } catch (e) {
-    console.error("Error in loginUser:", e);
-    return res.status(500).json({
-      message: "Internal server error",
-    });
+  const { email, password } = req.body;
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+  if (!user) {
+    throw new AppError("Invalid email or password", 401);
   }
+  const isPasswordMatch = await comparePasswords(password, user.passwordHash);
+  if (!isPasswordMatch) {
+    throw new AppError("Invalid email or password", 401);
+  }
+  const { passwordHash, ...userWithoutPassword } = user;
+  const jwt = sign({ userId: user.id, role: user.role }, jwtSecret!, {
+    expiresIn: "1h",
+  });
+  return res.status(200).json({
+    jwt,
+    user: userWithoutPassword,
+  });
 }
 
 export async function getCurrentUser(req: Request, res: Response) {
   const authUser = req.authUser;
-  if (!authUser) return res.status(401).json({
-    message: "Unauthorized"
-  })
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: authUser.userId},
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        username: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    })
-    if (!user) return res.status(404).json({
-      message: "User not found"
-    })
-    return res.status(200).json({
-      user
-    })
-  } catch (e) {
-    console.error("Error in getCurrentUser:", e);
-    return res.status(500).json({
-      message: "Internal server error",
-    })
+  if (!authUser) {
+    throw new AppError("Unauthorized", 401);
   }
+  const user = await prisma.user.findUnique({
+    where: { id: authUser.userId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      username: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+  return res.status(200).json({
+    user,
+  });
 }
