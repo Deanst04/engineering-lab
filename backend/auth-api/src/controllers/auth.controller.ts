@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import prisma from "../config/prisma";
 import { hashPassword, comparePasswords } from "../utils/password.util";
 import { sign } from "jsonwebtoken";
+import "../types/auth.types"
 
 const jwtSecret = process.env.JWT_SECRET;
 
@@ -86,9 +87,35 @@ export async function loginUser(req: Request, res: Response) {
   }
 }
 
-export function getCurrentUser(_req: Request, res: Response): void {
-  // throw new Error("Test error");
-  res.status(200).json({
-    message: "Current user route is working",
-  });
+export async function getCurrentUser(req: Request, res: Response) {
+  const authUser = req.authUser;
+  if (!authUser) return res.status(401).json({
+    message: "Unauthorized"
+  })
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: authUser.userId},
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    })
+    if (!user) return res.status(404).json({
+      message: "User not found"
+    })
+    return res.status(200).json({
+      user
+    })
+  } catch (e) {
+    console.error("Error in getCurrentUser:", e);
+    return res.status(500).json({
+      message: "Internal server error",
+    })
+  }
 }
